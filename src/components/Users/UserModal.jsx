@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { 
   Modal, 
   Form, 
@@ -9,7 +9,6 @@ import {
   Col,
   Switch,
   Card,
-  Space,
   Divider,
   message,
   Tabs
@@ -18,7 +17,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { ActionButton } from '../common/ActionButton';
 import { Icon } from '../common/Icon';
 import { useDispatch, useSelector } from 'react-redux';
-import { addUser, updateUser } from '../../features/users/usersSlice';
+import { addUser, updateUser, clearMessages } from '../../features/users/usersSlice';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -87,10 +86,20 @@ export function UserModal({ open, onClose, editingUser }) {
   const dispatch = useDispatch();
   const users = useSelector(state => state.users.usersList);
   const loading = useSelector(state => state.users.loading);
+  const error = useSelector(state => state.users.error);
+  const successMessage = useSelector(state => state.users.successMessage);
   const { hasPermission } = useAuth();
   const [form] = Form.useForm();
   const [permissions, setPermissions] = useState({});
   const [selectedRole, setSelectedRole] = useState('cashier');
+
+  // Proper cleanup function to reset state
+  const handleClose = useCallback(() => {
+    form.resetFields();
+    setPermissions(rolePermissions.cashier);
+    setSelectedRole('cashier');
+    onClose();
+  }, [form, onClose]);
 
   useEffect(() => {
     if (editingUser && open) {
@@ -111,6 +120,23 @@ export function UserModal({ open, onClose, editingUser }) {
     }
   }, [editingUser, open, form]);
 
+  // Handle success and error messages from Redux state
+  useEffect(() => {
+    if (!open) return; // Only handle messages when modal is open
+    
+    if (successMessage) {
+      message.success(successMessage);
+      dispatch(clearMessages());
+      handleClose(); // Close modal on success
+      return; // Don't process error if success occurred
+    }
+    
+    if (error) {
+      message.error(error);
+      dispatch(clearMessages());
+    }
+  }, [successMessage, error, dispatch, handleClose, open]);
+
   const handleRoleChange = (role) => {
     setSelectedRole(role);
     setPermissions(rolePermissions[role]);
@@ -129,7 +155,10 @@ export function UserModal({ open, onClose, editingUser }) {
 
   const handleSubmit = async (values) => {
     try {
-      // Check for duplicate username
+      // TODO: Move duplicate validation to backend to prevent race conditions
+      // This client-side check is insufficient for production use
+      
+      // Temporary client-side check for duplicate username
       const existingUser = users.find(u => 
         u.username === values.username && 
         u.id !== editingUser?.id
@@ -138,7 +167,8 @@ export function UserModal({ open, onClose, editingUser }) {
         message.error('Username already exists');
         return;
       }
-      // Check for duplicate email
+      
+      // Temporary client-side check for duplicate email
       const existingEmail = users.find(u => 
         u.email === values.email && 
         u.id !== editingUser?.id
@@ -154,15 +184,14 @@ export function UserModal({ open, onClose, editingUser }) {
       };
       if (editingUser) {
         dispatch(updateUser({ id: editingUser.id, userData: { ...editingUser, ...userData } }));
-        message.success('User updated successfully'); // todo
+        // Success message will be handled by Redux state in useEffect
       } else {
         dispatch(addUser({ userData }));
-        message.success('User created successfully'); // todo
+        // Success message will be handled by Redux state in useEffect
       }
-      onClose();
-      form.resetFields();
-      setPermissions({});
+      // Note: Modal will close automatically on success via useEffect
     } catch (error) {
+      console.error('Form validation failed:', error);
       message.error('Please fill in all required fields');
     }
   };
@@ -180,7 +209,11 @@ export function UserModal({ open, onClose, editingUser }) {
               handlePermissionChange(module, 'edit', false);
               handlePermissionChange(module, 'delete', false);
             } else {
+              // If enabling view, restore the current role's default permissions for this module
+              const roleDefaults = rolePermissions[selectedRole]?.[module] || { view: true, edit: false, delete: false };
               handlePermissionChange(module, 'view', true);
+              handlePermissionChange(module, 'edit', roleDefaults.edit);
+              handlePermissionChange(module, 'delete', roleDefaults.delete);
             }
           }}
           size="small"
@@ -398,7 +431,7 @@ export function UserModal({ open, onClose, editingUser }) {
     <Modal
       title={editingUser ? 'Edit User' : 'Add New User'}
       open={open}
-      onCancel={onClose}
+      onCancel={handleClose}
       width={800}
       footer={null}
       destroyOnClose
@@ -414,7 +447,7 @@ export function UserModal({ open, onClose, editingUser }) {
         <Divider />
 
         <div className="flex justify-end space-x-2">
-          <ActionButton onClick={onClose}>
+          <ActionButton onClick={handleClose}>
             Cancel
           </ActionButton>
           <ActionButton.Primary 

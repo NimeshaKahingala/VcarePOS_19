@@ -4,6 +4,7 @@ const initialState = {
   usersList: [],
   loading: false,
   error: null,
+  successMessage: null,
 };
 
 const usersSlice = createSlice({
@@ -13,18 +14,22 @@ const usersSlice = createSlice({
     fetchUsers(state) {
       state.loading = true;
       state.error = null;
+      state.successMessage = null;
     },
     addUser(state) {
       state.loading = true;
       state.error = null;
+      state.successMessage = null;
     },
     updateUser(state) {
       state.loading = true;
       state.error = null;
+      state.successMessage = null;
     },
     deleteUser(state) {
       state.loading = true;
       state.error = null;
+      state.successMessage = null;
     },
     fetchUsersSucceeded(state, action) {
       state.loading = false;
@@ -33,6 +38,7 @@ const usersSlice = createSlice({
     addUserSucceeded(state, action) {
       state.loading = false;
       state.usersList.push(action.payload.userData);
+      state.successMessage = 'User created successfully';
     },
     updateUserSucceeded(state, action) {
       state.loading = false;
@@ -40,6 +46,7 @@ const usersSlice = createSlice({
       if (idx !== -1) {
         state.usersList[idx] = action.payload.userData;
       }
+      state.successMessage = 'User updated successfully';
     },
     deleteUserSucceeded(state, action) {
       state.loading = false;
@@ -48,6 +55,10 @@ const usersSlice = createSlice({
     failed(state, action) {
       state.loading = false;
       state.error = action.payload;
+    },
+    clearMessages(state) {
+      state.error = null;
+      state.successMessage = null;
     },
   },
 });
@@ -62,6 +73,7 @@ export const {
   updateUserSucceeded,
   deleteUserSucceeded,
   failed,
+  clearMessages,
 } = usersSlice.actions;
 
 export default usersSlice.reducer;
