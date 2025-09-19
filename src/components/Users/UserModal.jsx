@@ -64,7 +64,7 @@ const rolePermissions = {
     'user-management': { view: true, edit: false, delete: false },
     'audit-trail': { view: true, edit: false, delete: false },
     'purchase-orders': { view: true, edit: true, delete: true },
-    'ecommerce-orders': { view: true, edit: true, delete: true }
+    'ecommerce-orders': { view: true, edit: false, delete: false }
   },
   cashier: {
     'pos': { view: true, edit: true, delete: false },
@@ -78,7 +78,7 @@ const rolePermissions = {
     'user-management': { view: false, edit: false, delete: false },
     'audit-trail': { view: false, edit: false, delete: false },
     'purchase-orders': { view: true, edit: true, delete: true },
-    'ecommerce-orders': { view: true, edit: true, delete: true }
+    'ecommerce-orders': { view: true, edit: false, delete: false }
   }
 };
 
