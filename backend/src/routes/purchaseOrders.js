@@ -3,6 +3,8 @@ const { body, param, validationResult } = require('express-validator');
 const { pool } = require('../utils/db');
 const { authenticate, hasPermission } = require('../middleware/auth');
 const { handleRouteError } = require('../utils/loggerUtils');
+const { updateInventoryStock, getSafeColorId, getSafeSizeId } = require('../utils/stockUtils');
+const { validatePurchaseOrderItemsMiddleware } = require('../middleware/purchaseOrderValidation');
 
 const router = express.Router();
 
@@ -471,11 +473,16 @@ router.get('/:id', authenticate, hasPermission('purchase-orders', 'view'), async
       ORDER BY timestamp
     `, [id]);
     
-    // Get goods receive notes for this purchase order
+    // Get goods receive notes for this purchase order with variant information
     const grnResult = await client.query(`
-      SELECT g.*, gi.*
+      SELECT 
+        g.*, gi.*,
+        pc.name as color_name,
+        ps.name as size_name
       FROM goods_receive_notes g
       LEFT JOIN goods_receive_note_items gi ON g.id = gi.grn_id
+      LEFT JOIN product_colors pc ON gi.color_id = pc.id
+      LEFT JOIN product_sizes ps ON gi.size_id = ps.id
       WHERE g.purchase_order_id = $1
     `, [id]);
     
@@ -520,6 +527,8 @@ router.get('/:id', authenticate, hasPermission('purchase-orders', 'view'), async
             unit: row.unit,
             quantity: parseFloat(row.quantity),
             receivedQuantity: parseFloat(row.received_quantity),
+            color: {id: row.color_id, name: row.color_name},
+            size: {id: row.size_id, name: row.size_name},
             notes: row.notes
           });
         }
@@ -545,6 +554,8 @@ router.get('/:id', authenticate, hasPermission('purchase-orders', 'view'), async
             unit: row.unit,
             quantity: parseFloat(row.quantity),
             receivedQuantity: parseFloat(row.received_quantity),
+            color: {id: row.color_id, name: row.color_name},
+            size: {id: row.size_id, name: row.size_name},
             notes: row.notes
           }] : []
         }];
@@ -598,6 +609,7 @@ router.post(
     body('items.*.name').notEmpty().withMessage('Item name is required'),
     body('items.*.quantity').isNumeric().withMessage('Item quantity must be a number'),
     body('items.*.unitPrice').isNumeric().withMessage('Item unit price must be a number'),
+    validatePurchaseOrderItemsMiddleware
   ],
   async (req, res) => {
     // Check for validation errors
@@ -663,8 +675,8 @@ router.post(
       
       // Insert purchase order items
       for (const item of items) {
-        const colorId = item.color && item.color.id ? item.color.id : null;
-        const sizeId = item.size && item.size.id ? item.size.id : null;
+        const colorId = getSafeColorId(item);
+        const sizeId = getSafeSizeId(item);
 
         await client.query(`
           INSERT INTO purchase_order_items (
@@ -752,7 +764,8 @@ router.put(
     param('id').notEmpty().withMessage('Purchase order ID is required'),
     body('vendorName').notEmpty().withMessage('Vendor name is required'),
     body('orderDate').notEmpty().withMessage('Order date is required'),
-    body('shippingAddress').notEmpty().withMessage('Shipping address is required')
+    body('shippingAddress').notEmpty().withMessage('Shipping address is required'),
+    validatePurchaseOrderItemsMiddleware
   ],
   async (req, res) => {
     // Check for validation errors
@@ -846,11 +859,14 @@ router.put(
         
         // Insert new items
         for (const item of items) {
+          const colorId = getSafeColorId(item);
+          const sizeId = getSafeSizeId(item);
+
           await client.query(`
             INSERT INTO purchase_order_items (
               purchase_order_id, item_id, type, name, sku,
-              category, unit, quantity, unit_price, total
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+              category, unit, quantity, unit_price, total, color_id, size_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
           `, [
             id,
             item.itemId,
@@ -861,24 +877,22 @@ router.put(
             item.unit,
             item.quantity,
             item.unitPrice,
-            item.quantity * item.unitPrice
+            item.quantity * item.unitPrice,
+            colorId,
+            sizeId
           ]);
         }
       }
 
       if(status && status === "completed") { 
-        // for (const item of items) { 
-        //   if(item.type === 'product') {
-        //     await client.query(`UPDATE products SET stock = stock + $1 WHERE id = $2`,[item.quantity,item.itemId]);
-        //   }        
-        // }
-
+        // Use standardized stock management for purchase order completion
         for (const item of items) { 
-          if(item.type === 'material') {
-            await client.query(`UPDATE raw_materials SET stock_quantity = stock_quantity + $1 WHERE id = $2`,[item.quantity,item.itemId]);
-          } else {
-            await client.query(`UPDATE product_sizes SET stock = stock + $1 WHERE id = $2`,[item.quantity,item.size.id]);
-          }     
+          try {
+            await updateInventoryStock(client, item, item.quantity, 'add');
+          } catch (error) {
+            console.error(`Failed to update stock for item ${item.itemId}:`, error.message);
+            throw error; // Will trigger transaction rollback
+          }
         }
       }
 
@@ -1170,14 +1184,25 @@ router.post(
         notes
       ]);
       
-      // Insert GRN items
+      // Insert GRN items with variant information
       for (const item of items) {
         if (item.received) {
+          // Get original purchase order item to retrieve variant info
+          const poItemResult = await client.query(`
+            SELECT color_id, size_id FROM purchase_order_items 
+            WHERE purchase_order_id = $1 AND item_id = $2
+            LIMIT 1
+          `, [id, item.itemId]);
+          
+          const poItem = poItemResult.rows[0];
+          const colorId = poItem?.color_id || null;
+          const sizeId = poItem?.size_id || null;
+          
           await client.query(`
             INSERT INTO goods_receive_note_items (
               grn_id, item_id, type, name, sku, category,
-              unit, quantity, received_quantity, notes
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+              unit, quantity, received_quantity, notes, color_id, size_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
           `, [
             grnId,
             item.itemId,
@@ -1188,28 +1213,24 @@ router.post(
             item.unit,
             item.quantity,
             item.receivedQuantity,
-            item.notes
+            item.notes,
+            colorId,
+            sizeId
           ]);
           
-          // Update inventory based on item type
-          if (item.type === 'product') {
-            await client.query(`
-              UPDATE products
-              SET stock = stock + $1
-              WHERE id = $2
-            `, [
-              item.receivedQuantity,
-              item.itemId
-            ]);
-          } else if (item.type === 'material') {
-            await client.query(`
-              UPDATE raw_materials
-              SET stock_quantity = stock_quantity + $1
-              WHERE id = $2
-            `, [
-              item.receivedQuantity,
-              item.itemId
-            ]);
+          // Use standardized stock management for inventory updates
+          const itemWithVariants = {
+            ...item,
+            quantity: item.receivedQuantity, // Use received quantity for stock update
+            color: colorId ? { id: colorId } : null,
+            size: sizeId ? { id: sizeId } : null
+          };
+          
+          try {
+            await updateInventoryStock(client, itemWithVariants, item.receivedQuantity, 'add');
+          } catch (error) {
+            console.error(`Failed to update stock for received item ${item.itemId}:`, error.message);
+            throw error; // Will trigger transaction rollback
           }
         }
       }
@@ -1254,17 +1275,25 @@ router.post(
         checkedBy: grn.checked_by,
         notes: grn.notes,
         timestamp: grn.timestamp,
-        items: items.filter(item => item.received).map(item => ({
-          itemId: item.itemId,
-          type: item.type,
-          name: item.name,
-          sku: item.sku,
-          category: item.category,
-          unit: item.unit,
-          quantity: item.quantity,
-          receivedQuantity: item.receivedQuantity,
-          notes: item.notes
-        }))
+        items: items.filter(item => item.received).map(item => {
+          // Get variant info that was stored during GRN creation
+          const colorId = item.color?.id || null;
+          const sizeId = item.size?.id || null;
+          
+          return {
+            itemId: item.itemId,
+            type: item.type,
+            name: item.name,
+            sku: item.sku,
+            category: item.category,
+            unit: item.unit,
+            quantity: item.quantity,
+            receivedQuantity: item.receivedQuantity,
+            color: colorId ? {id: colorId, name: item.color?.name} : {id: null, name: null},
+            size: sizeId ? {id: sizeId, name: item.size?.name} : {id: null, name: null},
+            notes: item.notes
+          };
+        })
       };
       
       res.status(201).json(formattedGrn);
