@@ -395,6 +395,7 @@ export function EcommerceOrderManagement() {
               />
               <div style={{ display: 'none' }} className="p-8 text-gray-500">
                 <Icon name="image" className="text-4xl mb-2" />
+                {`${import.meta.env.VITE_API_URL}/ecommerce/receipts/${selectedOrder.bankReceipt.filePath.split('/').pop()}`}
                 <p>Unable to load receipt image</p>
               </div>
             </div>

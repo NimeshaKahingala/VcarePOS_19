@@ -3,78 +3,14 @@ const { body, param, validationResult } = require('express-validator');
 const { pool } = require('../utils/db');
 const { authenticate, hasPermission } = require('../middleware/auth');
 const { generateToken, hashPassword, comparePassword } = require('../utils/auth');
-const { handleRouteError, logger } = require('../utils/loggerUtils');
+const { handleRouteError } = require('../utils/loggerUtils');
+const logger = require('../utils/logger');
+const { tempUpload, upload } = require('../utils/uploadConfig');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
 const router = express.Router();
-
-// Configure multer for temporary receipt uploads
-const tempStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadDir = path.join(__dirname, '../../uploads/temp_receipts');
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, `temp-receipt-${uniqueSuffix}${path.extname(file.originalname)}`);
-  }
-});
-
-const tempUpload = multer({
-  storage: tempStorage,
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
-  },
-  fileFilter: (req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|pdf/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
-    
-    if (mimetype && extname) {
-      return cb(null, true);
-    } else {
-      cb(new Error('Only JPEG, PNG, and PDF files are allowed'));
-    }
-  }
-});
-
-// Configure multer for permanent receipt uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadDir = path.join(__dirname, '../../uploads/receipts');
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, `receipt-${req.params.orderId}-${uniqueSuffix}${path.extname(file.originalname)}`);
-  }
-});
-
-const upload = multer({
-  storage: storage,
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
-  },
-  fileFilter: (req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|pdf/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
-    
-    if (mimetype && extname) {
-      return cb(null, true);
-    } else {
-      cb(new Error('Only JPEG, PNG, and PDF files are allowed'));
-    }
-  }
-});
 
 /**
  * @swagger
