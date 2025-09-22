@@ -5,8 +5,9 @@ const initialState = {
   currentOrder: null,
   loading: false,
   error: null,
-  uploadingReceipt: false,
-  uploadError: null,
+  uploadingTempReceipt: false,
+  tempReceiptError: null,
+  uploadedReceiptDetails: null,
 };
 
 const ordersSlice = createSlice({
@@ -26,9 +27,9 @@ const ordersSlice = createSlice({
       state.loading = true;
       state.error = null;
     },
-    uploadReceipt: (state) => {
-      state.uploadingReceipt = true;
-      state.uploadError = null;
+    uploadTemporaryReceipt: (state) => {
+      state.uploadingTempReceipt = true;
+      state.tempReceiptError = null;
     },
     
     // Success actions
@@ -48,18 +49,10 @@ const ordersSlice = createSlice({
       state.currentOrder = action.payload;
       state.error = null;
     },
-    uploadReceiptSuccess: (state, action) => {
-      state.uploadingReceipt = false;
-      state.uploadError = null;
-      // Update current order status if it matches
-      if (state.currentOrder && state.currentOrder.id === action.payload.orderId) {
-        state.currentOrder.orderStatus = action.payload.orderStatus;
-      }
-      // Update order in orders list
-      const orderIndex = state.orders.findIndex(order => order.id === action.payload.orderId);
-      if (orderIndex !== -1) {
-        state.orders[orderIndex].orderStatus = action.payload.orderStatus;
-      }
+    uploadTemporaryReceiptSuccess: (state, action) => {
+      state.uploadingTempReceipt = false;
+      state.tempReceiptError = null;
+      state.uploadedReceiptDetails = action.payload;
     },
     
     // Failure actions
@@ -67,9 +60,9 @@ const ordersSlice = createSlice({
       state.loading = false;
       state.error = action.payload;
     },
-    uploadReceiptFailure: (state, action) => {
-      state.uploadingReceipt = false;
-      state.uploadError = action.payload;
+    uploadTemporaryReceiptFailure: (state, action) => {
+      state.uploadingTempReceipt = false;
+      state.tempReceiptError = action.payload;
     },
     
     // Clear actions
@@ -78,7 +71,11 @@ const ordersSlice = createSlice({
     },
     clearError: (state) => {
       state.error = null;
-      state.uploadError = null;
+      state.tempReceiptError = null;
+    },
+    clearUploadedReceipt: (state) => {
+      state.uploadedReceiptDetails = null;
+      state.tempReceiptError = null;
     },
   },
 });
@@ -87,15 +84,16 @@ export const {
   createOrder,
   fetchOrders,
   fetchOrderById,
-  uploadReceipt,
+  uploadTemporaryReceipt,
   createOrderSuccess,
   fetchOrdersSuccess,
   fetchOrderByIdSuccess,
-  uploadReceiptSuccess,
+  uploadTemporaryReceiptSuccess,
   ordersFailure,
-  uploadReceiptFailure,
+  uploadTemporaryReceiptFailure,
   clearCurrentOrder,
   clearError,
+  clearUploadedReceipt,
 } = ordersSlice.actions;
 
 export default ordersSlice.reducer;

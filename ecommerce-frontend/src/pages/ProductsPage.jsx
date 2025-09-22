@@ -19,6 +19,19 @@ const ProductsPage = () => {
     if (products.length === 0) {
       dispatch(fetchProducts());
     }
+    
+    // Debug logging for products state
+    console.log('E-commerce ProductsPage: Products state updated', {
+      productsLength: products.length,
+      categoriesLength: categories.length,
+      loading,
+      sampleProducts: products.slice(0, 3).map(p => ({
+        id: p.id,
+        name: p.name,
+        stock: p.stock,
+        category: p.category
+      }))
+    });
   }, [dispatch, products.length]);
 
   // Update URL when category changes
@@ -37,7 +50,7 @@ const ProductsPage = () => {
       const matchesCategory = selectedCategory === 'All' || product.category === selectedCategory;
       const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                            product.description?.toLowerCase().includes(searchTerm.toLowerCase());
-      return matchesCategory && matchesSearch && product.stock > 0;
+      return matchesCategory && matchesSearch; // Temporarily removed stock filter for debugging
     })
     .sort((a, b) => {
       let aValue = a[sortBy];

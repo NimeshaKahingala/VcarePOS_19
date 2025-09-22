@@ -1,7 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
-import { createOrder, uploadReceipt, clearError } from '../store/slices/ordersSlice';
+import { 
+  createOrder, 
+  uploadTemporaryReceipt, 
+  clearError, 
+  clearUploadedReceipt 
+} from '../store/slices/ordersSlice';
 import LoadingSpinner from '../components/Common/LoadingSpinner';
 
 const CheckoutPage = () => {
@@ -9,7 +14,14 @@ const CheckoutPage = () => {
   const navigate = useNavigate();
   const { items, totalAmount } = useSelector(state => state.cart);
   const { customer } = useSelector(state => state.auth);
-  const { loading, error, currentOrder, uploadingReceipt, uploadError } = useSelector(state => state.orders);
+  const { 
+    loading, 
+    error, 
+    currentOrder, 
+    uploadingTempReceipt, 
+    tempReceiptError,
+    uploadedReceiptDetails 
+  } = useSelector(state => state.orders);
   
   const [currentStep, setCurrentStep] = useState(1);
   const [customerInfo, setCustomerInfo] = useState({
@@ -19,7 +31,7 @@ const CheckoutPage = () => {
     address: '',
   });
   const [paymentMethod, setPaymentMethod] = useState('cash_on_delivery');
-  const [receiptFile, setReceiptFile] = useState(null);
+  const [tempReceiptFile, setTempReceiptFile] = useState(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
 
   useEffect(() => {
@@ -32,6 +44,7 @@ const CheckoutPage = () => {
   useEffect(() => {
     // Clear errors when component mounts
     dispatch(clearError());
+    dispatch(clearUploadedReceipt());
   }, [dispatch]);
 
   useEffect(() => {
@@ -64,7 +77,13 @@ const CheckoutPage = () => {
         return;
       }
       
-      setReceiptFile(file);
+      setTempReceiptFile(file);
+    }
+  };
+
+  const handleUploadReceipt = () => {
+    if (tempReceiptFile) {
+      dispatch(uploadTemporaryReceipt({ file: tempReceiptFile }));
     }
   };
 
@@ -87,6 +106,12 @@ const CheckoutPage = () => {
   };
 
   const handlePlaceOrder = () => {
+    // Validate bank transfer receipt upload
+    if (paymentMethod === 'bank_transfer' && !uploadedReceiptDetails) {
+      alert('Please upload your bank transfer receipt before placing the order');
+      return;
+    }
+    
     const orderData = {
       customerName: customerInfo.name,
       customerEmail: customerInfo.email,
@@ -101,16 +126,12 @@ const CheckoutPage = () => {
       })),
     };
     
-    dispatch(createOrder(orderData));
-  };
-
-  const handleUploadReceipt = () => {
-    if (receiptFile && currentOrder) {
-      dispatch(uploadReceipt({
-        orderId: currentOrder.id,
-        file: receiptFile,
-      }));
+    // Include receipt details if bank transfer
+    if (paymentMethod === 'bank_transfer' && uploadedReceiptDetails) {
+      orderData.receiptDetails = uploadedReceiptDetails;
     }
+    
+    dispatch(createOrder(orderData));
   };
 
   const handleCloseSuccessModal = () => {
@@ -370,6 +391,75 @@ const CheckoutPage = () => {
                   )}
                 </div>
                 
+                {/* Bank Transfer Receipt Upload */}
+                {paymentMethod === 'bank_transfer' && (
+                  <div className="mb-6">
+                    <h3 className="font-semibold mb-4">Upload Bank Transfer Receipt</h3>
+                    
+                    {tempReceiptError && (
+                      <div className="bg-red-50 border border-red-200 rounded-md p-4 mb-4">
+                        <p className="text-sm text-red-800">{tempReceiptError}</p>
+                      </div>
+                    )}
+                    
+                    {uploadedReceiptDetails ? (
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                        <div className="flex items-center space-x-2">
+                          <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          <span className="text-green-800 font-medium">Receipt uploaded successfully!</span>
+                        </div>
+                        <p className="text-sm text-green-700 mt-1">
+                          File: {uploadedReceiptDetails.originalFilename} ({(uploadedReceiptDetails.fileSize / 1024).toFixed(2)} KB)
+                        </p>
+                        <button
+                          onClick={() => {
+                            dispatch(clearUploadedReceipt());
+                            setTempReceiptFile(null);
+                          }}
+                          className="text-sm text-green-600 hover:text-green-800 mt-2"
+                        >
+                          Upload different receipt
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Select Receipt File *
+                          </label>
+                          <input
+                            type="file"
+                            accept="image/*,.pdf"
+                            onChange={handleFileChange}
+                            className="input-field"
+                            required
+                          />
+                          <p className="text-xs text-gray-500 mt-1">
+                            Supported formats: JPEG, PNG, PDF (Max 5MB)
+                          </p>
+                        </div>
+                        
+                        <button
+                          onClick={handleUploadReceipt}
+                          disabled={!tempReceiptFile || uploadingTempReceipt}
+                          className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {uploadingTempReceipt ? (
+                            <div className="flex items-center space-x-2">
+                              <LoadingSpinner size="small" />
+                              <span>Uploading...</span>
+                            </div>
+                          ) : (
+                            'Upload Receipt'
+                          )}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+                
                 {/* Items Review */}
                 <div className="mb-6">
                   <h3 className="font-semibold mb-4">Order Items</h3>
@@ -405,7 +495,7 @@ const CheckoutPage = () => {
                   </button>
                   <button
                     onClick={handlePlaceOrder}
-                    disabled={loading}
+                    disabled={loading || (paymentMethod === 'bank_transfer' && !uploadedReceiptDetails)}
                     className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {loading ? (
@@ -414,7 +504,9 @@ const CheckoutPage = () => {
                         <span>Placing Order...</span>
                       </div>
                     ) : (
-                      'Place Order'
+                      paymentMethod === 'bank_transfer' && !uploadedReceiptDetails
+                        ? 'Upload Receipt First'
+                        : 'Place Order'
                     )}
                   </button>
                 </div>
@@ -478,44 +570,12 @@ const CheckoutPage = () => {
                 Your order #{currentOrder.id} has been placed successfully.
               </p>
               
-              {paymentMethod === 'bank_transfer' && !receiptFile && (
-                <div className="mb-6">
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
-                    <p className="text-sm text-yellow-800">
-                      Please upload your bank transfer receipt to complete your order.
-                    </p>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Upload Bank Receipt
-                    </label>
-                    <input
-                      type="file"
-                      accept="image/*,.pdf"
-                      onChange={handleFileChange}
-                      className="input-field"
-                    />
-                  </div>
-                  
-                  {uploadError && (
-                    <div className="mt-2 text-sm text-red-600">{uploadError}</div>
-                  )}
-                  
-                  <button
-                    onClick={handleUploadReceipt}
-                    disabled={!receiptFile || uploadingReceipt}
-                    className="w-full mt-4 btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {uploadingReceipt ? (
-                      <div className="flex items-center justify-center space-x-2">
-                        <LoadingSpinner size="small" />
-                        <span>Uploading...</span>
-                      </div>
-                    ) : (
-                      'Upload Receipt'
-                    )}
-                  </button>
+              {paymentMethod === 'bank_transfer' && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                  <p className="text-sm text-blue-800">
+                    Your bank transfer receipt has been uploaded and your order is being processed. 
+                    You will receive an email confirmation once your payment is verified and your order is ready for delivery.
+                  </p>
                 </div>
               )}
               

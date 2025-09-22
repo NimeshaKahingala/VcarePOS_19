@@ -17,7 +17,14 @@ if (import.meta.env.DEV) {
 const store = configureStore({
   reducer: rootReducer,
   middleware: (getDefaultMiddleware) =>
-    getDefaultMiddleware({ thunk: false }).concat(...middlewares),
+    getDefaultMiddleware({ 
+      thunk: false,
+      serializableCheck: {
+        ignoredActions: ['orders/uploadTemporaryReceipt'],
+        ignoredActionsPaths: ['payload.file'],
+        ignoredPaths: ['orders.uploadingTempReceipt']
+      }
+    }).concat(...middlewares),
 });
 
 sagaMiddleware.run(rootSaga);

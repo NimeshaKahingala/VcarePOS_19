@@ -3,14 +3,47 @@ const { body, param, validationResult } = require('express-validator');
 const { pool } = require('../utils/db');
 const { authenticate, hasPermission } = require('../middleware/auth');
 const { generateToken, hashPassword, comparePassword } = require('../utils/auth');
-const { handleRouteError } = require('../utils/loggerUtils');
+const { handleRouteError, logger } = require('../utils/loggerUtils');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
 const router = express.Router();
 
-// Configure multer for file uploads
+// Configure multer for temporary receipt uploads
+const tempStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(__dirname, '../../uploads/temp_receipts');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, `temp-receipt-${uniqueSuffix}${path.extname(file.originalname)}`);
+  }
+});
+
+const tempUpload = multer({
+  storage: tempStorage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = /jpeg|jpg|png|pdf/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
+    
+    if (mimetype && extname) {
+      return cb(null, true);
+    } else {
+      cb(new Error('Only JPEG, PNG, and PDF files are allowed'));
+    }
+  }
+});
+
+// Configure multer for permanent receipt uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadDir = path.join(__dirname, '../../uploads/receipts');
@@ -103,6 +136,65 @@ const upload = multer({
 // ============= PUBLIC ENDPOINTS (No Authentication Required) =============
 
 /**
+  * @swagger
+  * /ecommerce/receipts/temp-upload:
+  *   post:
+  *     summary: Upload bank transfer receipt temporarily
+  *     tags: [E-commerce]
+  *     security:
+  *       - bearerAuth: []
+  *     requestBody:
+  *       required: true
+  *       content:
+  *         multipart/form-data:
+  *           schema:
+  *             type: object
+  *             properties:
+  *               receipt:
+  *                 type: string
+  *                 format: binary
+  *     responses:
+  *       200:
+  *         description: Receipt uploaded successfully
+  *         content:
+  *           application/json:
+  *             schema:
+  *               type: object
+  *               properties:
+  *                 success:
+  *                   type: boolean
+  *                 filePath:
+  *                   type: string
+  *                 originalFilename:
+  *                   type: string
+  *                 fileSize:
+  *                   type: integer
+  *       400:
+  *         description: Invalid file or validation error
+  */
+ router.post('/receipts/temp-upload', authenticate, tempUpload.single('receipt'), async (req, res) => {
+   try {
+     if (req.user.role !== 'customer') {
+       return res.status(403).json({ message: 'Access denied' });
+     }
+     
+     if (!req.file) {
+       return res.status(400).json({ message: 'No file uploaded' });
+     }
+     
+     res.json({
+       success: true,
+       filePath: req.file.path,
+       originalFilename: req.file.originalname,
+       fileSize: req.file.size,
+       message: 'Receipt uploaded successfully'
+     });
+   } catch (error) {
+     handleRouteError(error, req, res, 'E-commerce - Temporary Receipt Upload');
+   }
+ });
+ 
+ /**
  * @swagger
  * /ecommerce/products:
  *   get:
@@ -120,32 +212,78 @@ const upload = multer({
  */
 router.get('/products', async (req, res) => {
   try {
+    logger.info('E-commerce products endpoint hit', { 
+      timestamp: new Date().toISOString(),
+      userAgent: req.get('User-Agent'),
+      ip: req.ip 
+    });
+    
     const client = await pool.connect();
     
     // Get all active products with their colors and sizes
     const productsResult = await client.query(`
-      SELECT * FROM products 
-      WHERE stock > 0 
+      SELECT * FROM products
       ORDER BY created_at DESC
     `);
+    
+    logger.debug('Raw products from database', { 
+      productCount: productsResult.rows.length,
+      sampleProduct: productsResult.rows[0] ? {
+        id: productsResult.rows[0].id,
+        name: productsResult.rows[0].name,
+        stock: productsResult.rows[0].stock,
+        category: productsResult.rows[0].category
+      } : null
+    });
     
     // Get all product colors
     const colorsResult = await client.query(`
       SELECT * FROM product_colors
     `);
     
+    logger.debug('Product colors from database', { 
+      colorCount: colorsResult.rows.length,
+      sampleColor: colorsResult.rows[0] ? {
+        id: colorsResult.rows[0].id,
+        product_id: colorsResult.rows[0].product_id,
+        name: colorsResult.rows[0].name
+      } : null
+    });
+    
     // Get all product sizes
     const sizesResult = await client.query(`
       SELECT * FROM product_sizes
     `);
     
+    logger.debug('Product sizes from database', { 
+      sizeCount: sizesResult.rows.length,
+      sampleSize: sizesResult.rows[0] ? {
+        id: sizesResult.rows[0].id,
+        product_color_id: sizesResult.rows[0].product_color_id,
+        name: sizesResult.rows[0].name,
+        stock: sizesResult.rows[0].stock
+      } : null
+    });
+    
     client.release();
     
     // Map colors and sizes to their respective products
     const products = productsResult.rows.map(product => {
+      logger.debug('Processing product', { 
+        productId: product.id,
+        productName: product.name,
+        productStock: product.stock
+      });
+      
       const colors = colorsResult.rows
         .filter(color => color.product_id === product.id)
         .map(color => {
+          logger.debug('Processing color for product', { 
+            productId: product.id,
+            colorId: color.id,
+            colorName: color.name
+          });
+          
           const colorSizes = sizesResult.rows
             .filter(size => size.product_color_id === color.id)
             .map(size => ({
@@ -155,6 +293,12 @@ router.get('/products', async (req, res) => {
               dimensions: size.dimensions,
               weight: parseFloat(size.weight || 0)
             }));
+          
+          logger.debug('Color sizes mapped', { 
+            colorId: color.id,
+            sizesCount: colorSizes.length,
+            totalSizeStock: colorSizes.reduce((sum, s) => sum + (s.stock || 0), 0)
+          });
           
           return {
             id: color.id,
@@ -166,26 +310,55 @@ router.get('/products', async (req, res) => {
         });
       
       // Calculate total stock from all color sizes
-      const totalStock = colors.reduce((total, color) => 
-        total + color.sizes.reduce((colorTotal, size) => colorTotal + (size.stock || 0), 0), 0
-      );
+      // Use robust stock calculation: if no colors/sizes exist, use product.stock
+      const totalStock = colors.length > 0 
+        ? colors.reduce((total, color) => 
+            total + color.sizes.reduce((colorTotal, size) => colorTotal + (size.stock || 0), 0), 0
+          )
+        : product.stock; // Fallback to main product stock if no variants
       
-      return {
+      logger.debug('Product stock calculation', { 
+        productId: product.id,
+        originalStock: product.stock,
+        calculatedTotalStock: totalStock,
+        colorsCount: colors.length
+      });
+      
+      const formattedProduct = {
         id: product.id,
         name: product.name,
         description: product.description,
         category: product.category,
         price: parseFloat(product.price),
-        stock: totalStock,
+        stock: totalStock || 0, // Ensure stock is never null/undefined
         barcode: product.barcode,
         image: product.image,
         colors,
         createdAt: product.created_at
       };
+      
+      logger.debug('Formatted product', { 
+        productId: formattedProduct.id,
+        finalStock: formattedProduct.stock,
+        hasColors: formattedProduct.colors.length > 0
+      });
+      
+      return formattedProduct;
+    });
+    
+    logger.info('E-commerce products response prepared', { 
+      totalProducts: products.length,
+      productsWithStock: products.filter(p => p.stock > 0).length,
+      productsWithColors: products.filter(p => p.colors.length > 0).length,
+      sampleProductIds: products.slice(0, 3).map(p => p.id)
     });
     
     res.json(products);
   } catch (error) {
+    logger.error('E-commerce products endpoint error', { 
+      error: error.message,
+      stack: error.stack
+    });
     handleRouteError(error, req, res, 'E-commerce - Fetch Products');
   }
 });
@@ -216,7 +389,7 @@ router.get('/products/:id', async (req, res) => {
     
     // Get product
     const productResult = await client.query(`
-      SELECT * FROM products WHERE id = $1 AND stock > 0
+      SELECT * FROM products WHERE id = $1
     `, [id]);
     
     if (productResult.rows.length === 0) {
@@ -260,9 +433,12 @@ router.get('/products/:id', async (req, res) => {
       };
     });
     
-    const totalStock = colors.reduce((total, color) => 
-      total + color.sizes.reduce((colorTotal, size) => colorTotal + (size.stock || 0), 0), 0
-    );
+    // Use robust stock calculation for single product view
+    const totalStock = colors.length > 0 
+      ? colors.reduce((total, color) => 
+          total + color.sizes.reduce((colorTotal, size) => colorTotal + (size.stock || 0), 0), 0
+        )
+      : product.stock; // Fallback to main product stock if no variants
     
     const formattedProduct = {
       id: product.id,
@@ -270,7 +446,7 @@ router.get('/products/:id', async (req, res) => {
       description: product.description,
       category: product.category,
       price: parseFloat(product.price),
-      stock: totalStock,
+      stock: totalStock || 0, // Ensure stock is never null/undefined
       barcode: product.barcode,
       image: product.image,
       colors,
@@ -575,7 +751,16 @@ router.post('/orders', [
   body('customerEmail').isEmail().withMessage('Valid email is required'),
   body('customerAddress').notEmpty().withMessage('Customer address is required'),
   body('paymentMethod').isIn(['cash_on_delivery', 'bank_transfer']).withMessage('Invalid payment method'),
-  body('items').isArray({ min: 1 }).withMessage('At least one item is required')
+  body('items').isArray({ min: 1 }).withMessage('At least one item is required'),
+  // Conditional validation for bank transfer receipt
+  body('receiptDetails').custom((value, { req }) => {
+    if (req.body.paymentMethod === 'bank_transfer') {
+      if (!value || !value.filePath || !value.originalFilename || !value.fileSize) {
+        throw new Error('Receipt details are required for bank transfer orders');
+      }
+    }
+    return true;
+  })
 ], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -592,7 +777,8 @@ router.post('/orders', [
     customerPhone,
     customerAddress,
     paymentMethod,
-    items
+    items,
+    receiptDetails
   } = req.body;
 
   const client = await pool.connect();
@@ -672,8 +858,43 @@ router.post('/orders', [
       customerAddress,
       totalAmount,
       paymentMethod,
-      paymentMethod === 'cash_on_delivery' ? 'processing' : 'pending_payment'
+      paymentMethod === 'cash_on_delivery' ? 'processing' : 'processing'
     ]);
+    
+    // Handle bank transfer receipt if provided
+    if (paymentMethod === 'bank_transfer' && receiptDetails) {
+      // Generate receipt ID
+      const receiptId = `RECEIPT-${Date.now()}`;
+      
+      // Move file from temp location to permanent location
+      const tempPath = receiptDetails.filePath;
+      const permanentDir = path.join(__dirname, '../../uploads/receipts');
+      if (!fs.existsSync(permanentDir)) {
+        fs.mkdirSync(permanentDir, { recursive: true });
+      }
+      
+      const permanentFilename = `receipt-${orderId}-${Date.now()}${path.extname(receiptDetails.originalFilename)}`;
+      const permanentPath = path.join(permanentDir, permanentFilename);
+      
+      // Move file from temp to permanent location
+      if (fs.existsSync(tempPath)) {
+        fs.renameSync(tempPath, permanentPath);
+      }
+      
+      // Insert receipt record
+      await client.query(`
+        INSERT INTO bank_receipts (
+          id, ecommerce_order_id, file_path, original_filename, file_size, status
+        ) VALUES ($1, $2, $3, $4, $5, $6)
+      `, [
+        receiptId,
+        orderId,
+        permanentPath,
+        receiptDetails.originalFilename,
+        receiptDetails.fileSize,
+        'pending_verification'
+      ]);
+    }
     
     // Insert order items
     for (const item of validatedItems) {
@@ -742,106 +963,21 @@ router.post('/orders', [
     });
   } catch (error) {
     await client.query('ROLLBACK');
+    
+    // Clean up temporary file if it exists
+    if (req.body.receiptDetails && req.body.receiptDetails.filePath) {
+      try {
+        if (fs.existsSync(req.body.receiptDetails.filePath)) {
+          fs.unlinkSync(req.body.receiptDetails.filePath);
+        }
+      } catch (cleanupError) {
+        console.error('Error cleaning up temporary file:', cleanupError);
+      }
+    }
+    
     handleRouteError(error, req, res, 'E-commerce - Create Order');
   } finally {
     client.release();
-  }
-});
-
-/**
- * @swagger
- * /ecommerce/orders/{orderId}/receipt:
- *   post:
- *     summary: Upload bank transfer receipt
- *     tags: [E-commerce]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: orderId
- *         required: true
- *         schema:
- *           type: string
- *     requestBody:
- *       required: true
- *       content:
- *         multipart/form-data:
- *           schema:
- *             type: object
- *             properties:
- *               receipt:
- *                 type: string
- *                 format: binary
- *     responses:
- *       200:
- *         description: Receipt uploaded successfully
- *       400:
- *         description: Invalid file or order
- */
-router.post('/orders/:orderId/receipt', authenticate, upload.single('receipt'), async (req, res) => {
-  try {
-    const { orderId } = req.params;
-    
-    if (req.user.role !== 'customer') {
-      return res.status(403).json({ message: 'Access denied' });
-    }
-    
-    if (!req.file) {
-      return res.status(400).json({ message: 'No file uploaded' });
-    }
-    
-    const client = await pool.connect();
-    
-    // Verify order exists and belongs to customer
-    const orderResult = await client.query(
-      'SELECT * FROM ecommerce_orders WHERE id = $1 AND customer_id = $2',
-      [orderId, req.user.id]
-    );
-    
-    if (orderResult.rows.length === 0) {
-      client.release();
-      return res.status(404).json({ message: 'Order not found' });
-    }
-    
-    const order = orderResult.rows[0];
-    
-    if (order.payment_method !== 'bank_transfer') {
-      client.release();
-      return res.status(400).json({ message: 'Receipt upload only allowed for bank transfer orders' });
-    }
-    
-    // Generate receipt ID
-    const receiptId = `RECEIPT-${Date.now()}`;
-    
-    // Insert receipt record
-    await client.query(`
-      INSERT INTO bank_receipts (
-        id, ecommerce_order_id, file_path, original_filename, file_size
-      ) VALUES ($1, $2, $3, $4, $5)
-    `, [
-      receiptId,
-      orderId,
-      req.file.path,
-      req.file.originalname,
-      req.file.size
-    ]);
-    
-    // Update order status to processing
-    await client.query(
-      'UPDATE ecommerce_orders SET order_status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-      ['processing', orderId]
-    );
-    
-    client.release();
-    
-    res.json({
-      success: true,
-      message: 'Receipt uploaded successfully',
-      receiptId,
-      orderStatus: 'processing'
-    });
-  } catch (error) {
-    handleRouteError(error, req, res, 'E-commerce - Upload Receipt');
   }
 });
 

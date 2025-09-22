@@ -3,20 +3,21 @@ import {
   createOrder,
   fetchOrders,
   fetchOrderById,
-  uploadReceipt,
+  uploadTemporaryReceipt,
   createOrderSuccess,
   fetchOrdersSuccess,
   fetchOrderByIdSuccess,
-  uploadReceiptSuccess,
+  uploadTemporaryReceiptSuccess,
   ordersFailure,
-  uploadReceiptFailure,
+  uploadTemporaryReceiptFailure,
 } from '../slices/ordersSlice';
 import { clearCart } from '../slices/cartSlice';
 import { ordersApi } from '../../api/apiClient';
 
 function* createOrderSaga(action) {
   try {
-    const order = yield call(ordersApi.create, action.payload);
+    const { receiptDetails, ...orderData } = action.payload;
+    const order = yield call(ordersApi.create, orderData, receiptDetails);
     yield put(createOrderSuccess(order));
     
     // Clear cart after successful order
@@ -44,15 +45,12 @@ function* fetchOrderByIdSaga(action) {
   }
 }
 
-function* uploadReceiptSaga(action) {
+function* uploadTemporaryReceiptSaga(action) {
   try {
-    const response = yield call(ordersApi.uploadReceipt, action.payload.orderId, action.payload.file);
-    yield put(uploadReceiptSuccess({
-      orderId: action.payload.orderId,
-      orderStatus: response.orderStatus
-    }));
+    const response = yield call(ordersApi.uploadTemporaryReceipt, action.payload.file);
+    yield put(uploadTemporaryReceiptSuccess(response));
   } catch (error) {
-    yield put(uploadReceiptFailure(error.message || 'Failed to upload receipt'));
+    yield put(uploadTemporaryReceiptFailure(error.message || 'Failed to upload receipt'));
   }
 }
 
@@ -60,5 +58,5 @@ export default function* ordersSaga() {
   yield takeLatest(createOrder.type, createOrderSaga);
   yield takeLatest(fetchOrders.type, fetchOrdersSaga);
   yield takeLatest(fetchOrderById.type, fetchOrderByIdSaga);
-  yield takeLatest(uploadReceipt.type, uploadReceiptSaga);
+  yield takeLatest(uploadTemporaryReceipt.type, uploadTemporaryReceiptSaga);
 }

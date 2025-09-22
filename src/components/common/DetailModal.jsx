@@ -335,13 +335,28 @@ export function DetailModal({
             {data.paymentMethod === 'cash_on_delivery' ? 'Cash on Delivery' : 'Bank Transfer'}
           </Tag>
         </Descriptions.Item>
+        <Descriptions.Item label="Order Status">
+          <Tag color={
+            data.orderStatus === 'completed' ? 'green' :
+            data.orderStatus === 'processing' ? 'blue' :
+            data.orderStatus === 'pending_verification' ? 'yellow' :
+            data.orderStatus === 'pending_payment' ? 'orange' : 'default'
+          }>
+            {data.orderStatus === 'pending_payment' ? 'Pending Payment' :
+             data.orderStatus === 'pending_verification' ? 'Pending Verification' :
+             data.orderStatus === 'processing' ? 'Processing' :
+             data.orderStatus.replace('_', ' ').toUpperCase()}
+          </Tag>
+        </Descriptions.Item>
         <Descriptions.Item label="Delivery Address" span={2}>
           {data.customerAddress}
         </Descriptions.Item>
         {data.bankReceipt && (
           <Descriptions.Item label="Bank Receipt" span={2}>
             <div className="flex items-center space-x-2">
-              <Tag color="green">Uploaded</Tag>
+              <Tag color={data.bankReceipt.status === 'verified' ? 'green' : 'orange'}>
+                {data.bankReceipt.status === 'verified' ? 'Verified' : 'Pending Verification'}
+              </Tag>
               <Text className="text-sm">{data.bankReceipt.originalFilename}</Text>
               <Text type="secondary" className="text-xs">
                 ({(data.bankReceipt.fileSize / 1024).toFixed(2)} KB)
