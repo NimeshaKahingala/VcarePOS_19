@@ -20,12 +20,23 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: false,
     minify: 'esbuild',
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'pdf-worker': ['react-pdf']
+        }
+      }
+    }
   },
   server: {
     port: 3001,
     open: true,
     cors: true,
     host: true,
+    headers: {
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Opener-Policy': 'same-origin'
+    }
   },
   preview: {
     port: 3001,
@@ -41,7 +52,9 @@ export default defineConfig({
       '@reduxjs/toolkit',
       'react-redux',
       'antd',
-      'dayjs'
+      'dayjs',
+      'react-pdf',
+      'pdfjs-dist'
     ],
     exclude: ['lucide-react'],
     force: true,

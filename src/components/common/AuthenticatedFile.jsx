@@ -4,11 +4,21 @@ import { Document, Page, pdfjs } from 'react-pdf';
 import { LoadingSkeleton } from './LoadingSkeleton';
 import { fetchReceiptBlob, clearReceiptBlob } from '../../features/ecommerceOrders/ecommerceOrdersSlice';
 
-// Alternative approach - copy worker to public folder and reference it
-pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.js',
-  import.meta.url,
-).toString();
+// Configure PDF.js worker only once
+let workerConfigured = false;
+const configurePdfWorker = () => {
+  if (!workerConfigured) {
+    try {
+      // Try local worker first, fallback to CDN
+      pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
+      workerConfigured = true;
+    } catch (error) {
+      console.warn('Failed to load local PDF worker, falling back to CDN:', error);
+      pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+      workerConfigured = true;
+    }
+  }
+};
 
 /**
  * AuthenticatedFile - Component for displaying authenticated files (images and PDFs)
@@ -70,10 +80,12 @@ export const AuthenticatedFile = ({
   // PDF-specific handlers
   const onDocumentLoadSuccess = ({ numPages }) => {
     setNumPages(numPages);
+    console.log('PDF loaded successfully with', numPages, 'pages');
   };
 
   const onDocumentLoadError = (error) => {
     console.error('PDF load error:', error);
+    // You might want to set an error state here for better UX
   };
 
   // Show loading state
@@ -103,6 +115,9 @@ export const AuthenticatedFile = ({
   // Show file if blob URL is available
   if (receipt?.blobUrl) {
     if (fileType === 'pdf') {
+      // Configure worker before rendering PDF
+      configurePdfWorker();
+      
       return (
         <div className={`pdf-container ${className}`} {...props}>
           <Document 
@@ -111,8 +126,16 @@ export const AuthenticatedFile = ({
             onLoadError={onDocumentLoadError}
             loading={<LoadingSkeleton type="document" />}
             error={
-              <div className="p-4 text-center text-red-500">
-                <p>Failed to load PDF</p>
+              <div className="p-8 text-center text-gray-500 border border-gray-200 rounded">
+                <div className="text-4xl mb-2">📄</div>
+                <p className="mb-4">Could not display PDF in browser</p>
+                <a 
+                  href={receipt.blobUrl} 
+                  download={filename}
+                  className="inline-block px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                >
+                  📥 Download PDF
+                </a>
               </div>
             }
           >
@@ -145,6 +168,14 @@ export const AuthenticatedFile = ({
               >
                 Next
               </button>
+              
+              <a 
+                href={receipt.blobUrl} 
+                download={filename}
+                className="ml-4 px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
+              >
+                📥 Download
+              </a>
             </div>
           )}
         </div>
