@@ -20,6 +20,7 @@ import { EnhancedTable } from '../common/EnhancedTable';
 import { DetailModal } from '../common/DetailModal';
 import { LoadingSkeleton } from '../common/LoadingSkeleton';
 import { EmptyState } from '../common/EmptyState';
+import { AuthenticatedFile } from '../common/AuthenticatedFile';
 import { 
   fetchEcommerceOrders,
   updateEcommerceOrderStatus,
@@ -383,21 +384,19 @@ export function EcommerceOrderManagement() {
             </div>
             
             <div className="text-center">
-              <img
-                src={`${import.meta.env.VITE_API_URL}/ecommerce/receipts/${selectedOrder.bankReceipt.filePath.split('/').pop()}`}
+              <AuthenticatedFile
+                receiptId={selectedOrder.bankReceipt.id}
+                filename={selectedOrder.bankReceipt.filePath.split('/').pop()}
                 alt="Bank Receipt"
                 className="max-w-full h-auto rounded-lg shadow-md"
                 style={{ maxHeight: '500px' }}
-                onError={(e) => {
-                  e.target.style.display = 'none';
-                  e.target.nextSibling.style.display = 'block';
-                }}
+                fallback={
+                  <div className="p-8 text-gray-500 text-center">
+                    <Icon name="file" className="text-4xl mb-2" />
+                    <p>Unable to load receipt file</p>
+                  </div>
+                }
               />
-              <div style={{ display: 'none' }} className="p-8 text-gray-500">
-                <Icon name="image" className="text-4xl mb-2" />
-                {`${import.meta.env.VITE_API_URL}/ecommerce/receipts/${selectedOrder.bankReceipt.filePath.split('/').pop()}`}
-                <p>Unable to load receipt image</p>
-              </div>
             </div>
           </div>
         )}

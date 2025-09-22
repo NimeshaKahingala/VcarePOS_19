@@ -528,5 +528,50 @@ export const ecommerceOrdersApi = {
       method: 'PUT',
       body: JSON.stringify({ status, notes })
     });
+  },
+  
+  getReceiptBlob: async (filename) => {
+    // Get token from localStorage
+    const token = localStorage.getItem('vcare_token');
+    
+    // Create AbortController for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT);
+    
+    try {
+      const response = await fetch(`${API_URL}/ecommerce/receipts/${filename}`, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+        signal: controller.signal
+      });
+      
+      // Clear timeout
+      clearTimeout(timeoutId);
+      
+      // Handle 401 Unauthorized specifically
+      if (response.status === 401) {
+        handleAuthError();
+        throw createApiError(
+          'Authentication failed. Please log in again.',
+          401
+        );
+      }
+      
+      if (!response.ok) {
+        throw createApiError(
+          `Failed to fetch receipt: ${response.statusText}`, 
+          response.status
+        );
+      }
+      
+      return response.blob();
+    } catch (error) {
+      clearTimeout(timeoutId);
+      
+      if (error.name === 'AbortError') {
+        throw createApiError('Request timeout', 408);
+      }
+      
+      throw error;
+    }
   }
 };

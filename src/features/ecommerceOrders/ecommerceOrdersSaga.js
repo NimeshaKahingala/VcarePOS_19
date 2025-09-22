@@ -3,9 +3,12 @@ import {
   fetchEcommerceOrders,
   fetchEcommerceOrderById,
   updateEcommerceOrderStatus,
+  fetchReceiptBlob,
   fetchEcommerceOrdersSucceeded,
   fetchEcommerceOrderByIdSucceeded,
   updateEcommerceOrderStatusSucceeded,
+  fetchReceiptBlobSucceeded,
+  fetchReceiptBlobFailed,
   failed
 } from "./ecommerceOrdersSlice";
 import { ecommerceOrdersApi } from "../../api/apiClient";
@@ -37,8 +40,20 @@ function* updateEcommerceOrderStatusSaga(action) {
   }
 }
 
+function* fetchReceiptBlobSaga(action) {
+  try {
+    const { receiptId, filename } = action.payload;
+    const blob = yield call(ecommerceOrdersApi.getReceiptBlob, filename);
+    const blobUrl = URL.createObjectURL(blob);
+    yield put(fetchReceiptBlobSucceeded({ receiptId, blobUrl }));
+  } catch (error) {
+    yield put(fetchReceiptBlobFailed({ receiptId: action.payload.receiptId, error: error.message }));
+  }
+}
+
 export default function* ecommerceOrdersSaga() {
   yield takeLatest(fetchEcommerceOrders.type, fetchEcommerceOrdersSaga);
   yield takeLatest(fetchEcommerceOrderById.type, fetchEcommerceOrderByIdSaga);
   yield takeLatest(updateEcommerceOrderStatus.type, updateEcommerceOrderStatusSaga);
+  yield takeLatest(fetchReceiptBlob.type, fetchReceiptBlobSaga);
 }
