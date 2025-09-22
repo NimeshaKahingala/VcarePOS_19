@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Modal, Typography, Divider, Row, Col, Space, Image } from 'antd';
 import { Icon } from '../common/Icon';
 import { ActionButton } from '../common/ActionButton';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import { BarcodePresets } from '../../utils/barcodeGenerator';
 
 const { Title, Text } = Typography;
 
@@ -486,15 +487,18 @@ export function ProductDetailsSheet({ open, onClose, product }) {
               </Row>
             </div>
 
-           {/* QR Code and Additional Info */} 
+           {/* Barcode and Additional Info */} 
             <div className="border-t pt-6">
               <Row gutter={32}>
-                <Col span={16}>
+                <Col span={product.barcode && BarcodePresets.large(product.barcode) ? 12 : 24}>
                   <div>
                     <Text strong className="block mb-2">Additional Information:</Text>
                     <Text type="secondary">
                       For more details, assembly videos, and customer reviews,
-                      scan the QR code or visit our website at www.vcarefurniture.com
+                      {product.barcode && BarcodePresets.large(product.barcode) 
+                        ? ' scan the barcode or visit our website.'
+                        : ' visit our website at www.vcarefurniture.com'
+                      }
                     </Text>
 
                     <div className="mt-4 space-y-1">
@@ -513,22 +517,36 @@ export function ProductDetailsSheet({ open, onClose, product }) {
                     </div>
                   </div>
                 </Col>
-                <Col span={8}>
-                  <div className="text-center">
-                    <div className="w-24 h-24 bg-gray-200 mx-auto flex items-center justify-center border rounded">
-                      <Text type="secondary">QR CODE</Text>
-                    </div>
-                    <Text type="secondary" className="text-xs mt-2 block">
-                      Scan for product details
-                    </Text>
+                {product.barcode && BarcodePresets.large(product.barcode) && (
+                  <Col span={12}>
+                    <div className="text-center">
+                      {(() => {
+                        const barcodeData = BarcodePresets.large(product.barcode);
+                        return (
+                          <>
+                            <div className="w-40 h-12 mx-auto flex items-center justify-center">
+                              <img 
+                                src={barcodeData.dataUrl} 
+                                alt="Product Barcode"
+                                className="max-w-full h-full object-contain"
+                                style={{ width: barcodeData.width, height: barcodeData.height }}
+                              />
+                            </div>
+                            <Text type="secondary" className="text-xs mt-2 block">
+                              {barcodeData.value}
+                            </Text>
 
-                    <div className="mt-4 text-center">
-                      <Text type="secondary" className="text-xs">
-                        Generated on: {new Date().toLocaleDateString()}
-                      </Text>
+                            <div className="mt-4 text-center">
+                              <Text type="secondary" className="text-xs">
+                                Generated on: {new Date().toLocaleDateString()}
+                              </Text>
+                            </div>
+                          </>
+                        );
+                      })()}
                     </div>
-                  </div>
-                </Col>
+                  </Col>
+                )}
               </Row>
             </div>
 
