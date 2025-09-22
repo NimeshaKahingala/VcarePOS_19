@@ -1,5 +1,5 @@
 import { useState, useEffect, Suspense, lazy } from 'react';
-import { ConfigProvider, Layout, theme, Spin } from 'antd';
+import { ConfigProvider, Layout, theme, Spin, App as AntApp } from 'antd';
 import { AuthProvider } from './contexts/AuthContext'; 
 import { LoginPage } from './components/Auth/LoginPage';
 import { Header } from './components/Layout/Header';
@@ -529,10 +529,12 @@ function App() {
         },
       }}
     >
-      <AuthProvider>
-          <ReduxErrorNotification />
-          <AppWithNotifications />
-      </AuthProvider>
+      <AntApp>
+        <AuthProvider>
+            <ReduxErrorNotification />
+            <AppWithNotifications />
+        </AuthProvider>
+      </AntApp>
     </ConfigProvider>
   );
 }

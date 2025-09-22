@@ -1,32 +1,29 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   Card,
-  Button,
-  Typography,
-  Modal,
   Row,
   Col,
   Space,
-  Tag,
-  Image,
   Select,
   Input,
+  message,
 } from 'antd';
 import { useSelector, useDispatch } from 'react-redux';
 import { fetchProducts } from '../../features/products/productsSlice';
 import { fetchCategories } from '../../features/categories/categoriesSlice';
 import { ProductCard } from '../common/ProductCard';
-import { Icon } from '../common/Icon';
 import { ActionButton } from '../common/ActionButton';
 import { LoadingSkeleton } from '../common/LoadingSkeleton';
 import { EmptyState } from '../common/EmptyState';
 import { CustomProductModal } from './CustomProductModal';
 import { ProductAddonsModal } from './ProductAddonsModal';
 import { ColorAndSizeSelectionModal } from './ColorAndSizeSelectionModal';
+import { BarcodeSimulator } from './BarcodeSimulator';
 import { addToCart } from '../../features/cart/cartSlice';
+import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
+import { BARCODE_SCANNER_CONFIG, DEFAULT_SCANNER_OPTIONS } from '../../config/barcodeConfig';
 
 const { Option } = Select;
-const { Text, Title } = Typography;
 const { Search } = Input;
 
 export function ProductGrid({ collapsed }) {
@@ -40,6 +37,59 @@ export function ProductGrid({ collapsed }) {
   const [showColorSizeModal, setShowColorSizeModal] = useState(false);
   const [showCustomProductModal, setShowCustomProductModal] = useState(false);
   const [showAddonsModal, setShowAddonsModal] = useState(false);
+  const [showBarcodeSimulator, setShowBarcodeSimulator] = useState(false);
+
+  // Barcode scanner functionality
+  const findProductByBarcode = useCallback((barcode) => {
+    if (!Array.isArray(products)) return null;
+    
+    // Search for product by barcode (including variants)
+    return products.find(product => 
+      product.barcode === barcode || 
+      product.sku === barcode ||
+      (product.variants && product.variants.some(variant => 
+        variant.barcode === barcode || variant.sku === barcode
+      ))
+    );
+  }, [products]);
+
+  const handleAddToCart = useCallback((product) => {
+    if (product.colors && product.colors.length > 0) {
+      // Show color and size selection modal
+      setSelectedProduct(product);
+      setShowColorSizeModal(true);
+    } else if (product.isCustom) {
+      dispatch(addToCart({ product }));
+    } else {
+      setSelectedProduct(product);
+      setShowAddonsModal(true);
+    }
+  }, [dispatch]);
+
+  const handleBarcodeScanned = useCallback((barcode) => {
+    console.log('Barcode scanned:', barcode);
+    
+    const product = findProductByBarcode(barcode);
+    
+    if (product) {
+      message.success(`Product found: ${product.name}`);
+      handleAddToCart(product);
+    } else {
+      message.warning(`No product found with barcode: ${barcode}`);
+    }
+  }, [findProductByBarcode, handleAddToCart]);
+
+  const handleScannerError = useCallback((error) => {
+    console.error('Barcode scanner error:', error);
+    message.error('Barcode scanner error: ' + error.message);
+  }, []);
+
+  // Initialize barcode scanner
+  const { status: scannerStatus } = useBarcodeScanner({
+    ...DEFAULT_SCANNER_OPTIONS,
+    onScan: handleBarcodeScanned,
+    onError: handleScannerError
+  });
 
   React.useEffect(() => {
     dispatch(fetchProducts());
@@ -61,20 +111,7 @@ export function ProductGrid({ collapsed }) {
       return matchesSearch && matchesCategory;
     }) : [];
 
-  const handleAddToCart = (product) => {
-    if (product.colors && product.colors.length > 0) {
-      // Show color and size selection modal
-      setSelectedProduct(product);
-      setShowColorSizeModal(true);
-    } else if (product.isCustom) {
-      dispatch(addToCart({ product }));
-    } else {
-      setSelectedProduct(product);
-      setShowAddonsModal(true);
-    }
-  };
-
-  const handleColorAndSizeSelected = (selectedColor, selectedSize, selectedSizeData) => {
+  const handleColorAndSizeSelected = (selectedColor, selectedSize, _selectedSizeData) => {
     // Close color/size modal
     setShowColorSizeModal(false);
     
@@ -142,16 +179,40 @@ export function ProductGrid({ collapsed }) {
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-2xl font-bold m-0">Products</h2>
+              {/* Scanner status indicator */}
+              {BARCODE_SCANNER_CONFIG.ENABLED && (
+                <div className="text-sm text-gray-500 mt-1">
+                  Scanner: <span className={`font-medium ${
+                    scannerStatus === 'idle' ? 'text-green-600' :
+                    scannerStatus === 'scanning' ? 'text-blue-600' :
+                    scannerStatus === 'processing' ? 'text-yellow-600' :
+                    scannerStatus === 'error' ? 'text-red-600' :
+                    'text-gray-600'
+                  }`}>
+                    {scannerStatus}
+                  </span>
+                </div>
+              )}
             </div>
             <Space>
               <Search
-                placeholder="Search by product name or SKU..."
+                placeholder="Search by product name or barcode..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 onSearch={setSearchTerm}
                 className="w-80"
                 size="large"
               />
+              {/* Barcode simulator for testing */}
+              {BARCODE_SCANNER_CONFIG.ENABLED && (
+                <ActionButton.Primary 
+                  size="large"
+                  onClick={() => setShowBarcodeSimulator(true)}
+                  title="Open barcode scanner simulator for testing"
+                >
+                  Scanner Test
+                </ActionButton.Primary>
+              )}
               <ActionButton.Primary 
                 size="large"
                 icon="add"
@@ -234,6 +295,13 @@ export function ProductGrid({ collapsed }) {
         onClose={() => setShowAddonsModal(false)}
         product={selectedProduct}
         onAddToCart={handleAddToCartWithAddons}
+      />
+
+      {/* Barcode Scanner Simulator */}
+      <BarcodeSimulator
+        visible={showBarcodeSimulator}
+        onClose={() => setShowBarcodeSimulator(false)}
+        onScan={handleBarcodeScanned}
       />
     </>
   );
